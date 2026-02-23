@@ -402,29 +402,7 @@ cmd_start() {
     apply_layout "${SESSION}:0"
     sleep 0.5
 
-    # Create control panel pane at bottom (if requested)
-    if $with_panel; then
-        tmux split-window -v -t "${SESSION}:0.0" -c "$PROJECT_DIR" -l 12
-        sleep 0.5
-        # The split pushes agents up, panel is at the bottom
-        # Panel is the last pane
-        local panel_pane=$agent_count
-        log_debug "Created control panel at pane $panel_pane"
-
-        # Re-apply layout to the agent panes above
-        apply_layout "${SESSION}:0"
-        sleep 0.3
-
-        # Launch control panel
-        local panel_script="$PROJECT_DIR/.claude/control-panel.sh"
-        if [ -f "$panel_script" ]; then
-            tmux send-keys -t "${SESSION}:0.${panel_pane}" "bash $panel_script" Enter
-        else
-            tmux send-keys -t "${SESSION}:0.${panel_pane}" "echo 'Control panel script not found at $panel_script'" Enter
-        fi
-    fi
-
-    # Launch Claude Code in each agent pane
+    # Launch Claude Code in each agent pane FIRST
     local pane_idx=0
     local claude_cmd
     while IFS=: read -r role model label emoji; do
@@ -455,6 +433,26 @@ cmd_start() {
 
     # Record start time for watchdog
     date +%s > /tmp/claude-last-status-change
+
+    # Create control panel as full-width bottom pane AFTER agents are set up
+    if $with_panel; then
+        # Select the first pane, then split the entire window vertically
+        # This creates a full-width pane at the bottom
+        tmux select-pane -t "${SESSION}:0.0"
+        tmux split-window -v -f -t "${SESSION}:0.0" -c "$PROJECT_DIR" -l 12
+        sleep 0.5
+
+        # The new pane is now the last one
+        local panel_pane=$agent_count
+        log_debug "Created control panel at pane $panel_pane"
+
+        local panel_script="$PROJECT_DIR/.claude/control-panel.sh"
+        if [ -f "$panel_script" ]; then
+            tmux send-keys -t "${SESSION}:0.${panel_pane}" "bash $panel_script" Enter
+        else
+            tmux send-keys -t "${SESSION}:0.${panel_pane}" "echo 'Control panel not found at $panel_script'" Enter
+        fi
+    fi
 
     log_info "Agents launched in tmux session: $SESSION"
     echo ""
