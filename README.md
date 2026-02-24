@@ -2,9 +2,11 @@
 
 A portable toolkit that turns any project into a coordinated team of AI agents with a single command. No frameworks, no dependencies — just bash, tmux, and markdown.
 
+![Demo](demo.gif)
+
 ## What It Does
 
-Runs multiple Claude Code instances in tmux panes, each with a dedicated role. Agents communicate through shared markdown files using an append-only protocol. An auto-orchestrator watches pipeline state and triggers each agent automatically.
+Runs multiple Claude Code instances in tmux panes, each with a dedicated role. Agents communicate through shared markdown files using an append-only protocol. An auto-orchestrator watches pipeline state and triggers each agent automatically. A live control panel lets you monitor, skip steps, and intervene without breaking the flow.
 
 ## Agent Profiles
 
@@ -22,19 +24,20 @@ Every role's model is configurable — use Opus for planning, Sonnet for coding,
 ### Install (one line)
 
 ```bash
-git clone https://github.com/GrIlm14/claude-agents.git ~/claude-agents && chmod +x ~/claude-agents/setup.sh ~/claude-agents/scripts/pipeline.sh
+git clone https://github.com/GrIlm14/claude-agents.git ~/claude-agents && chmod +x ~/claude-agents/setup.sh ~/claude-agents/scripts/pipeline.sh ~/claude-agents/scripts/control-panel.sh
 ```
 
 ### Set Up a Project
 
 ```bash
 cd /path/to/any/project
-~/claude-agents/setup.sh       # Creates config files
+~/claude-agents/setup.sh       # Creates config + role files
 nano pipeline.env              # Optional: change agents/models/layout
+./claude-pipeline doctor       # Preflight checks
 ./claude-pipeline auto         # Launch and go
 ```
 
-That's it. Three panes open. Tell the Manager what to build. The orchestrator handles the rest.
+That's it. Agent panes open up top, control panel at the bottom. Tell the Manager what to build. The orchestrator handles the rest.
 
 ## Prerequisites
 
@@ -43,16 +46,20 @@ That's it. Three panes open. Tell the Manager what to build. The orchestrator ha
 - Node.js 18+: `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs`
 - Claude Code: `npm install -g @anthropic-ai/claude-code`
 - Claude Pro/Max subscription or `ANTHROPIC_API_KEY`
-- tmux base-index set to 0: `echo "set -g base-index 0" >> ~/.tmux.conf && echo "set -g pane-base-index 0" >> ~/.tmux.conf`
+- tmux base-index set to 0:
+  ```bash
+  echo "set -g base-index 0" >> ~/.tmux.conf
+  echo "set -g pane-base-index 0" >> ~/.tmux.conf
+  ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `./claude-pipeline start` | Launch agents in tmux |
-| `./claude-pipeline auto` | Launch + auto-orchestrator (hands-free) |
-| `./claude-pipeline resume-auto` | Restart with context catch-up + auto-orchestrate |
-| `./claude-pipeline resume-manual` | Restart with context catch-up (manual triggers) |
+| `./claude-pipeline auto` | Launch + orchestrator + control panel |
+| `./claude-pipeline start` | Launch agents only (no orchestrator) |
+| `./claude-pipeline resume-auto` | Restart with context catch-up + auto |
+| `./claude-pipeline resume-manual` | Restart with context catch-up (manual) |
 | `./claude-pipeline stop` | Kill everything |
 | `./claude-pipeline pause` | Pause orchestrator (agents stay running) |
 | `./claude-pipeline unpause` | Resume orchestrator |
@@ -61,27 +68,84 @@ That's it. Three panes open. Tell the Manager what to build. The orchestrator ha
 | `./claude-pipeline attach` | Reattach to tmux session |
 | `./claude-pipeline clean` | Reset context files (keeps archive) |
 | `./claude-pipeline nuke` | Full reset including archive |
+| `./claude-pipeline doctor` | Run preflight checks |
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--yolo` | Auto-accept all agent permissions (`--dangerously-skip-permissions`) |
+| `--debug` | Verbose output for troubleshooting |
+
+Example: `./claude-pipeline resume-auto --yolo --debug`
+
+## Control Panel
+
+The bottom tmux pane shows a live control panel with pipeline state and single-key commands:
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║  🎛️  PIPELINE CONTROL PANEL                                  ║
+╠═══════════════════════════════════════════════════════════════╣
+║  Status: TEST_COMPLETE:PASS    Next: Security    Cycle: 3    ║
+╠═══════════════════════════════════════════════════════════════╣
+║  [1] Manager  [2] Coder  [3] Tester  [4] Security  [5] Docs ║
+╠═══════════════════════════════════════════════════════════════╣
+║  [s] Skip next   [m] Set status   [c] Custom prompt          ║
+║  [p] Pause/Resume [r] Re-trigger  [l] View log               ║
+╚═══════════════════════════════════════════════════════════════╝
+```
+
+| Key | Action |
+|-----|--------|
+| `1-6` | Trigger that agent directly |
+| `s` | Skip the next agent in the chain |
+| `m` | Set pipeline status manually |
+| `c` | Send a custom prompt to any agent |
+| `p` | Pause/resume the orchestrator |
+| `r` | Re-trigger the current stuck agent |
+| `l` | View orchestrator log |
+
+The control panel includes a **watchdog timer** — if no status change happens for 5+ minutes, it warns you that an agent may be stuck.
+
+## Role Files
+
+Each agent gets its own prompt file instead of one shared document. This prevents agents from seeing other roles and trying to play them.
+
+```
+.claude/
+├── CLAUDE.md              ← Shared protocol (status states, log format)
+└── prompts/
+    ├── manager.md         ← Manager: planning, specs, decisions only
+    ├── coder.md           ← Coder: implement specs, log changes
+    ├── tester.md          ← Tester: review, test, report findings
+    ├── security.md        ← Security: audit vulnerabilities
+    ├── docs.md            ← Docs: update documentation
+    ├── senior.md          ← Senior Dev: complex tasks + code review
+    └── junior.md          ← Junior Dev: simple tasks, follow spec exactly
+```
+
+Customize any role by editing its file. Create custom roles by adding new `.md` files.
 
 ## Configuration (pipeline.env)
-
-All settings live in one file — `pipeline.env` in your project root:
 
 ```bash
 # Agent profile: 2-agent, 3-agent, 5-agent, 6-agent, custom
 AGENT_PROFILE="3-agent"
 
-# Model per role (use aliases: opus, sonnet, haiku)
+# Model per role
 MODEL_MANAGER="opus"
 MODEL_CODER="sonnet"
 MODEL_TESTER="haiku"
 MODEL_SECURITY="sonnet"
 MODEL_DOCS="haiku"
-MODEL_SENIOR_DEV="sonnet"
-MODEL_JUNIOR_DEV="haiku"
 
 # Rate limiting
-CYCLE_COOLDOWN=30        # Seconds between cycles
-MAX_CYCLES=0             # 0 = unlimited, or set a number to auto-pause
+CYCLE_COOLDOWN=30
+MAX_CYCLES=0             # 0 = unlimited
+
+# Auto-accept all permissions (or use --yolo flag)
+SKIP_PERMISSIONS=false
 
 # Layout: horizontal, vertical, tiled
 TMUX_LAYOUT="horizontal"
@@ -104,31 +168,40 @@ You give Manager a goal
   Manager ──► Coder ──► Tester ──► Security ──► Docs ──► Manager
 ```
 
-### 6-Agent
-```
-  Manager ──► Senior Dev ──┬──► Tester ──► Security ──► Docs ──► Manager
-              Junior Dev ◄─┘
-```
+### Skip States
+
+Not every task needs every step. The Manager (or you via the control panel) can skip agents:
+
+| Status | Effect |
+|--------|--------|
+| `SKIP_SECURITY` | Skip security review → go to Docs |
+| `SKIP_DOCS` | Skip docs → return to Manager |
+| `SKIP_TO_MANAGER` | Skip everything → return to Manager |
 
 ## Stopping and Resuming
 
-Your work persists in `.context/` files. When you need to stop and come back later:
+Context persists in `.context/` files. Stop and resume anytime:
 
 ```bash
 ./claude-pipeline stop           # Stop everything
 
 # Later...
-./claude-pipeline resume-auto    # Agents restart and catch up on context
+./claude-pipeline resume-auto    # Agents catch up and continue
 ```
-
-Resume mode sends each agent a catch-up prompt that tells them to read the context files and continue from where the last session ended.
 
 ## File Structure
 
 ```
 your-project/
 ├── .claude/
-│   └── CLAUDE.md               ← Agent roles & communication protocol
+│   ├── CLAUDE.md               ← Shared protocol
+│   ├── control-panel.sh        ← Control panel UI
+│   └── prompts/                ← Role-specific agent prompts
+│       ├── manager.md
+│       ├── coder.md
+│       ├── tester.md
+│       ├── security.md
+│       └── docs.md
 ├── .context/
 │   ├── status.md               ← Pipeline state (watched by orchestrator)
 │   ├── current-task.md         ← Active task spec
@@ -145,8 +218,6 @@ your-project/
 
 ## Token Cost Optimization
 
-The architecture minimizes expensive model usage:
-
 | Strategy | How |
 |----------|-----|
 | Opus only plans | Manager never writes code — just specs and reviews |
@@ -155,18 +226,31 @@ The architecture minimizes expensive model usage:
 | Cycle cooldowns | Configurable pause between cycles to respect rate limits |
 | Max cycle limits | Auto-pause after N cycles to prevent runaway token burn |
 | Append-only logs | Agents reference by timestamp instead of duplicating content |
+| Role isolation | Each agent only reads its own role file, not all roles |
+| Skip states | Skip unnecessary steps (security, docs) for simple tasks |
+
+## Preflight Checks
+
+Run `./claude-pipeline doctor` before your first launch to verify:
+
+- tmux installed with correct base-index (must be 0)
+- Node.js 18+ installed
+- Claude Code CLI installed
+- Project structure (.claude/, .context/, pipeline.env)
+- Current pipeline state and configuration
 
 ## Contributing
 
-This is an open-source project and contributions are welcome! Some areas where help would be appreciated:
+This is open source and contributions are welcome. Areas where help is appreciated:
 
-- **Testing on macOS/Linux** — Built and tested on WSL2, would love confirmation on native Linux and macOS
-- **Additional agent profiles** — Got ideas for new team compositions? Open a PR
-- **Rate limit detection** — Smarter awareness of Claude Code usage limits
-- **MCP integration** — Connecting agents to external tools via Model Context Protocol
-- **Web dashboard** — A browser UI to monitor pipeline state instead of terminal logs
+- **Testing on macOS/Linux** — built and tested on WSL2
+- **Additional agent profiles** — new team compositions
+- **Smarter rate limit detection** — awareness of Claude Code usage limits
+- **Web dashboard** — browser UI for pipeline monitoring
+- **Token usage tracking** — estimated cost per cycle
+- **Dynamic spec verbosity** — Manager assigns word limits based on task complexity
 
-Feel free to open issues, submit PRs, or fork and experiment. Let's build this together.
+Feel free to open issues, submit PRs, or fork and experiment.
 
 ## tmux Cheat Sheet
 
